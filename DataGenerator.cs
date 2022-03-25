@@ -80,10 +80,12 @@ namespace TwinDataLoader
             newNode.Properties.Add("humidity", rand.Next(50, 100));
             newNode.Properties.Add("pressure", rand.Next(50, 100));
             newNode.Properties.Add("level", level);
+            newNode.Properties.Add($"dyn-{level}", Guid.NewGuid().ToString("D"));
+            newNode.Properties.Add($"guid-{Guid.NewGuid():D}", "dynProp");
 
             for (var i = 0; i < numTwinProperties; i++)
             {
-                var propName = $"prop{i.ToString("D3")}";
+                var propName = $"prop{i:D3}";
                 newNode.Properties[propName] = rand.Next(0, 100);
             }
 

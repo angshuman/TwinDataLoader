@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Net.Http;
     using System.Threading.Tasks;
 
     class Program
@@ -10,7 +11,8 @@
 
         public static async Task Main(string[] args)
         {
-            await IngestDataNeo4J();
+            await IngestDataHexastore();
+            await QueryHexastore();
         }
 
         public static async Task IngestDataHexastore()
@@ -32,6 +34,20 @@
             {
                 indexer.Dispose();
             }
+        }
+
+        public static async Task QueryHexastore()
+        {
+            using var httpClient = new HttpClient();
+            var url = "http://localhost:5000";
+            var graph = $"adt{001}";
+
+            await MakePropertyQuery(url, graph, httpClient);
+        }
+
+        public static Task MakePropertyQuery(string url, string graph, HttpClient client)
+        {
+            return Task.CompletedTask;
         }
 
         public static async Task IngestDataNeo4J()
