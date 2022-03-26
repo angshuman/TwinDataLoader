@@ -1,9 +1,54 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-
-namespace TwinDataLoader
+﻿namespace TwinDataLoader
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
+    public class GraphEntity
+    {
+        public string Id { get; set; }
+
+        public string Label { get; set; }
+
+        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
+
+        private readonly Random rand = new Random();
+
+        public GraphEntity Update()
+        {
+            var newProperties = new Dictionary<string, object>();
+
+            foreach (var prop in Properties)
+            {
+                if (prop.Value is string)
+                {
+                    newProperties[prop.Key] = Guid.NewGuid().ToString("D");
+                }
+                else if (prop.Value is int)
+                {
+                    newProperties[prop.Key] = rand.Next(50, 100);
+                }
+            }
+
+            this.Properties = newProperties;
+            return this;
+        }
+    }
+
+    public class Node : GraphEntity
+    {
+        public string PartitionId { get; set; }
+    }
+
+    public class Edge : GraphEntity
+    {
+        public string EdgeType { get; set; }
+
+        public string FromId { get; set; }
+
+        public string ToId { get; set; }
+    }
+
     public class DataGenerator
     {
         private readonly int level;
@@ -13,10 +58,17 @@ namespace TwinDataLoader
         private readonly int numEdgeProperties;
         private readonly bool generateReverseEdge;
         private readonly Random rand;
+        private List<GraphEntity> entities = new List<GraphEntity>();
+
         private int nodeCount = 1;
         private int edgeCount = 0;
 
-        public DataGenerator(int level, int factor, string relationshipName, int numTwinProperties, int numEdgeProperties, bool generateReverseEdge)
+        public DataGenerator(int level,
+            int factor,
+            string relationshipName,
+            int numTwinProperties,
+            int numEdgeProperties,
+            bool generateReverseEdge)
         {
             this.level = level;
             this.factor = factor;
@@ -27,18 +79,31 @@ namespace TwinDataLoader
             rand = new Random();
         }
 
-        public IEnumerable<object> Generate()
+        public IEnumerable<GraphEntity> Generate()
         {
-            var root = new List<Node> { GetNode("0", "twin", 0) };
-            yield return root.First();
-            var rest = GenerateLevel(root, 1);
-            foreach (var item in rest)
-            {
-                yield return item;
-            }
+            var roots = new List<Node> { GetNode("0", "twin", 0) };
+            entities.AddRange(roots);
+            var rest = GenerateLevel(roots, 1);
+            entities.AddRange(rest);
+            return entities;
         }
 
-        private IEnumerable<object> GenerateLevel(List<Node> previousNodes, int currentLevel)
+        public IEnumerable<GraphEntity> Update()
+        {
+            entities = entities.Select(x => x.Update()).ToList();
+            return entities;
+        }
+
+        public Dictionary<string, int> GetCount()
+        {
+            return new Dictionary<string, int> {
+                { "total", entities.Count() },
+                { "nodes", entities.Where(x => x is Node).Count() },
+                { "edges", entities.Where(x=> x is Edge).Count() }
+            };
+        }
+
+        private IEnumerable<GraphEntity> GenerateLevel(List<Node> previousNodes, int currentLevel)
         {
             if (currentLevel == level)
             {
@@ -55,10 +120,29 @@ namespace TwinDataLoader
                     levelNodes.Add(newNode);
                     yield return newNode;
 
-                    foreach (var edge in GetEdge(edgeCount++.ToString(), this.realationshipName, previousNode.Id, newNode.Id, this.generateReverseEdge))
+                    var edges = GetEdge(edgeCount++.ToString(), this.realationshipName, previousNode.Id, newNode.Id, this.generateReverseEdge);
+
+                    foreach (var edge in edges)
                     {
                         yield return edge;
                     }
+                }
+            }
+
+            Node previousSibling = null;
+            foreach (var item in levelNodes)
+            {
+                if (previousSibling == null)
+                {
+                    previousSibling = item;
+                    continue;
+                }
+
+                var edges = GetEdge(edgeCount++.ToString(), $"{this.realationshipName}-next-{level}", previousSibling.Id, item.Id, this.generateReverseEdge);
+                previousSibling = item;
+                foreach (var edge in edges)
+                {
+                    yield return edge;
                 }
             }
 
@@ -75,11 +159,13 @@ namespace TwinDataLoader
                 Id = id,
                 Label = label,
             };
+
             newNode.PartitionId = newNode.Id;
             newNode.Properties.Add("temperature", rand.Next(50, 100));
             newNode.Properties.Add("humidity", rand.Next(50, 100));
             newNode.Properties.Add("pressure", rand.Next(50, 100));
             newNode.Properties.Add("level", level);
+            newNode.Properties.Add("coordinates", new int[] { 0, rand.Next(), rand.Next(), rand.Next(), level });
             newNode.Properties.Add($"dyn-{level}", Guid.NewGuid().ToString("D"));
             newNode.Properties.Add($"guid-{Guid.NewGuid():D}", "dynProp");
 
@@ -124,32 +210,6 @@ namespace TwinDataLoader
                 };
             }
         }
-    }
-
-    public class Node
-    {
-        public string Id { get; set; }
-
-        public string Label { get; set; }
-
-        public string PartitionId { get; set; }
-
-        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
-    }
-
-    public class Edge
-    {
-        public string Id { get; set; }
-
-        public string Label { get; set; }
-
-        public string EdgeType { get; set; }
-
-        public string FromId { get; set; }
-
-        public string ToId { get; set; }
-
-        public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
     }
 }
 

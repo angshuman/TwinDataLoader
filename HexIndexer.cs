@@ -17,6 +17,33 @@
         private readonly string url;
         private readonly string instance;
         private readonly HexIndexerReporter reporter;
+        private readonly int batchSize = 1_000;
+
+        public static async Task IngestDataHexastore()
+        {
+            Console.WriteLine("Hexastore Index");
+            var numOfGraphs = 20;
+            var dataGenerator = new DataGenerator(level: 12, factor: 2, relationshipName: "has", numTwinProperties: 100, numEdgeProperties: 100, false);
+            var data = dataGenerator.Generate().ToList();
+
+            var reporter = new HexIndexerReporter();
+
+            var indexers = new List<HexIndexer>();
+            for (var i = 0; i < numOfGraphs; i++)
+            {
+                var hexIndexer = new HexIndexer("http://localhost:5000", $"adt{i:D3}", reporter);
+                indexers.Add(hexIndexer);
+                Console.WriteLine($"Indexer {i}");
+            }
+
+            var tasks = indexers.Select(x => (x.IngestAsync(data), x)).ToList();
+            await Task.WhenAll(tasks.Select(x => x.Item1));
+            reporter.StopAndReport();
+            foreach (var indexer in tasks.Select(x => x.Item2))
+            {
+                indexer.Dispose();
+            }
+        }
 
         public HexIndexer(string url, string instance, HexIndexerReporter reporter)
         {
@@ -24,44 +51,34 @@
             this.url = url;
             this.instance = instance;
             this.reporter = reporter;
+            var rsp = httpClient.GetAsync($"{url}/api/store/{instance}/0").Result;
+            rsp.EnsureSuccessStatusCode();
         }
 
-        public async Task IngestAsync(IEnumerable<object> data)
+        public async Task IngestAsync(List<GraphEntity> data)
         {
             Console.WriteLine($"Starting for instance {instance}");
-            var list = data.ToList();
+            var list = data;
             var marker = 0;
 
-            var batchSize = 1000;
             var timer = Stopwatch.StartNew();
             while (marker < list.Count)
             {
-                var take = list.Skip(marker).Take(1000).ToList();
+                var take = list.Skip(marker).Take(batchSize).ToList();
                 if (!take.Any())
                 {
                     break;
                 }
 
-                var nodes = take.OfType<Node>().Select(x => new UpdateRquest { PartitionKey = x.Id, Data = x }).ToList();
-                var edges = take.OfType<Edge>().Select(x => new UpdateRquest { PartitionKey = x.Id, Data = x }).ToList();
                 reporter.Start();
 
-                {
-                    var rsp = await httpClient.PostAsync($"{url}/api/store/{instance}/twin", JsonContent.Create(nodes));
-                    ProcessResponse(rsp);
-                    Console.WriteLine($"{instance} Created {nodes.Count()} nodes");
-                    reporter.AddNodes(instance, nodes.Count());
-                }
+                var rsp = await httpClient.PostAsync($"{url}/api/store/{instance}/twin", JsonContent.Create(take));
+                ProcessResponse(rsp);
+                Console.WriteLine($"{instance} Created {take.Count()} nodes");
+                reporter.AddNodes(instance, take.Count());
 
-                {
-                    var rsp = await httpClient.PostAsync($"{url}/api/store/{instance}/relationship", JsonContent.Create(edges));
-                    ProcessResponse(rsp);
-                    Console.WriteLine($"{instance} Created {edges.Count()} edges");
-                    reporter.AddEdges(instance, edges.Count());
-                }
-
-                Console.WriteLine($"Completed ingestion of {marker} entities in {timer.Elapsed.TotalSeconds} seconds.");
                 marker += batchSize;
+                Console.WriteLine($"Completed ingestion of {marker} entities in {timer.Elapsed.TotalSeconds} seconds.");
             }
         }
 
